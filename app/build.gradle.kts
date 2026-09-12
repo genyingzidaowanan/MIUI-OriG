@@ -22,10 +22,10 @@ android {
 
     defaultConfig {
         applicationId = "com.redwind.hyperorig"
-        minSdk = 35
+        minSdk = 33
         targetSdk = 36
-        versionCode = 260607
-        versionName = "2.0.1-alpha"
+        versionCode = 260912
+        versionName = "2.1.0-Mod"
     }
 
     buildTypes {
@@ -54,12 +54,12 @@ android {
 
     java {
         toolchain {
-            languageVersion = JavaLanguageVersion.of(JavaVersion.VERSION_22.majorVersion)
+            languageVersion = JavaLanguageVersion.of(JavaVersion.VERSION_21.majorVersion)
         }
     }
 
     kotlin {
-        jvmToolchain(JavaVersion.VERSION_22.majorVersion.toInt())
+        jvmToolchain(JavaVersion.VERSION_21.majorVersion.toInt())
     }
 
     buildFeatures {

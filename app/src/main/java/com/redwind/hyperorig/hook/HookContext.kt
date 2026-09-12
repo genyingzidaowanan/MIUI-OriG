@@ -6,6 +6,7 @@ import io.github.libxposed.api.XposedModule
 import java.lang.reflect.Constructor
 import java.lang.reflect.Method
 import com.redwind.hyperorig.config.ConfigManager
+import com.redwind.hyperorig.utils.RuntimeLog
 
 abstract class HookContext {
     lateinit var module: XposedModule
@@ -67,41 +68,49 @@ object Log {
     fun v(tag: String, message: String) {
         if (ConfigManager.logLevel() < ConfigManager.LOG_LEVEL_DEBUG) return
         module?.log(android.util.Log.INFO, tag, message)
+        RuntimeLog.d(tag, message)
     }
 
     fun i(tag: String, message: String) {
         if (ConfigManager.logLevel() < ConfigManager.LOG_LEVEL_BASIC) return
         module?.log(android.util.Log.INFO, tag, message)
+        RuntimeLog.i(tag, message)
     }
 
     fun d(tag: String, message: String) {
         if (ConfigManager.logLevel() < ConfigManager.LOG_LEVEL_DEBUG) return
         module?.log(android.util.Log.INFO, tag, message)
+        RuntimeLog.d(tag, message)
     }
 
     fun d(tag: String, message: String, throwable: Throwable) {
         if (ConfigManager.logLevel() < ConfigManager.LOG_LEVEL_DEBUG) return
         module?.log(android.util.Log.ERROR, tag, message, throwable)
+        RuntimeLog.d(tag, "$message: ${throwable.javaClass.simpleName}: ${throwable.message}")
     }
 
     fun w(tag: String, message: String) {
         if (ConfigManager.logLevel() < ConfigManager.LOG_LEVEL_BASIC) return
         module?.log(android.util.Log.INFO, tag, message)
+        RuntimeLog.w(tag, message)
     }
 
     fun w(tag: String, message: String, throwable: Throwable) {
         if (ConfigManager.logLevel() < ConfigManager.LOG_LEVEL_BASIC) return
         module?.log(android.util.Log.ERROR, tag, message, throwable)
+        RuntimeLog.w(tag, "$message: ${throwable.javaClass.simpleName}: ${throwable.message}")
     }
 
     fun e(tag: String, message: String) {
         if (ConfigManager.logLevel() < ConfigManager.LOG_LEVEL_BASIC) return
         module?.log(android.util.Log.ERROR, tag, message)
+        RuntimeLog.e(tag, message)
     }
 
     fun e(tag: String, message: String, throwable: Throwable) {
         if (ConfigManager.logLevel() < ConfigManager.LOG_LEVEL_BASIC) return
         module?.log(android.util.Log.ERROR, tag, message, throwable)
+        RuntimeLog.e(tag, "$message: ${throwable.javaClass.simpleName}: ${throwable.message}")
     }
 }
 

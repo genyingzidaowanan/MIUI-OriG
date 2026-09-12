@@ -1,5 +1,7 @@
 package com.redwind.hyperorig.hook
 
+import androidx.core.content.ContextCompat
+
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothDevice
 import android.content.BroadcastReceiver
@@ -167,7 +169,7 @@ object BluetoothUpstreamHeadsetHook : HookContext() {
             addAction(HyperOriGAction.ACTION_PODS_TRANSPARENCY_VOCAL_ENHANCEMENT_CHANGED)
             addAction(HyperOriGAction.ACTION_CONFIG_CHANGED)
         }
-        context?.registerReceiver(object : BroadcastReceiver() {
+        context?.let { ctx -> ContextCompat.registerReceiver(ctx, object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
                 when (intent?.action) {
                     HyperOriGAction.ACTION_CONFIG_CHANGED -> {
@@ -202,7 +204,7 @@ object BluetoothUpstreamHeadsetHook : HookContext() {
                 Log.d(TAG, "state action=${intent?.action} address=$currentAddress name=$currentName anc=$currentAnc battery=${currentBattery.debugString()}")
                 notifyRealStatus("broadcast:${intent?.action}")
             }
-        }, filter, Context.RECEIVER_EXPORTED)
+        }, filter, ContextCompat.RECEIVER_EXPORTED) }
         receiverRegistered = true
         context?.sendBroadcast(Intent(HyperOriGAction.ACTION_REFRESH_STATUS).apply {
             setPackage("com.android.bluetooth")

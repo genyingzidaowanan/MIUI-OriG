@@ -54,6 +54,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.redwind.hyperorig.R
 import com.redwind.hyperorig.pods.NoiseControlMode
+import com.redwind.hyperorig.utils.AncModeMemory
+import android.content.Context
+import androidx.compose.ui.platform.LocalContext
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.SinkFeedback
@@ -63,6 +66,17 @@ import kotlin.math.abs
 @Composable
 fun AncSwitch(ancStatus: NoiseControlMode, onAncModeChange: (NoiseControlMode) -> Unit) {
     val isDarkMode = isSystemInDarkTheme()
+    val context = LocalContext.current
+
+    // 恢复用户上次使用的降噪子模式，避免每次点“降噪”都回到“普通”
+    fun preferredNcMode(): NoiseControlMode {
+        val prefs = context.getSharedPreferences(AncModeMemory.PREFS_NAME, Context.MODE_PRIVATE)
+        return when (AncModeMemory.read(prefs)) {
+            4 -> NoiseControlMode.DEEP
+            5 -> NoiseControlMode.EXPERIMENT
+            else -> NoiseControlMode.NORMAL
+        }
+    }
 
     val isAncMode = ancStatus == NoiseControlMode.NORMAL ||
                     ancStatus == NoiseControlMode.DEEP ||
@@ -101,7 +115,7 @@ fun AncSwitch(ancStatus: NoiseControlMode, onAncModeChange: (NoiseControlMode) -
                 isDarkMode = isDarkMode,
                 onClick = {
                     if (isAncMode) onAncModeChange(NoiseControlMode.OFF)
-                    else onAncModeChange(NoiseControlMode.NORMAL)
+                    else onAncModeChange(preferredNcMode())
                 },
                 modifier = Modifier.weight(1f)
             )
@@ -380,7 +394,7 @@ private fun SimpleAncSlider(
                         .background(Color(0xFFAAAAAA))
                 )
             }
-            // 试验性降噪点
+            // 实验性降噪点
             Box(
                 modifier = Modifier
                     .size(32.dp)

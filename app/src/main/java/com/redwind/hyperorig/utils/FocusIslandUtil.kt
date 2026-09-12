@@ -120,7 +120,7 @@ object FocusIslandUtil {
 
             Log.d(TAG, "Focus Island shown: L=$leftText% R=$rightText%")
             return true
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Log.e(TAG, "Failed to show Focus Island", e)
             return false
         }

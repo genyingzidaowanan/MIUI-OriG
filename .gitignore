@@ -23,3 +23,7 @@ app/release/
 # Ignore tmp file for yuki hook api
 assets/xposed_init
 resources/META-INF/yukihookapi_init
+
+# Runtime logs / local build logs（不要把运行日志提交上去）
+/log/
+build.log

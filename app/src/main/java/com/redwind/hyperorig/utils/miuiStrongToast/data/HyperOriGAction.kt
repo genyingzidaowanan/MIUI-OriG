@@ -26,6 +26,9 @@ object HyperOriGAction {
     const val ACTION_PODS_TRANSPARENCY_VOCAL_ENHANCEMENT_CHANGED = "com.redwind.hyperorig.action.pods_transparency_vocal_enhancement_changed"
     const val ACTION_CYCLE_ANC = "com.redwind.hyperorig.action.cycle_anc"
     const val ACTION_ADAPTIVE_MODE_CHANGED = "com.redwind.hyperorig.action.adaptive_mode_changed"
+    const val ACTION_SEND_STRONG_TOAST = "com.redwind.hyperorig.action.sendstrongtoast"
+    const val ACTION_UPDATE_PODS_NOTIFICATION = "com.redwind.hyperorig.action.updatepodsnotification"
+    const val ACTION_CANCEL_PODS_NOTIFICATION = "com.redwind.hyperorig.action.cancelpodsnotification"
     const val ACTION_CONFIG_CHANGED = "com.redwind.hyperorig.action.config_changed"
     const val ACTION_WARMUP = "com.redwind.hyperorig.action.warmup"
 }

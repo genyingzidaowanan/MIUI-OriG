@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import com.redwind.hyperorig.BuildConfig
 import com.redwind.hyperorig.pods.*
+import com.redwind.hyperorig.utils.AncModeMemory
 import com.redwind.hyperorig.utils.miuiStrongToast.data.BatteryParams
 import com.redwind.hyperorig.utils.miuiStrongToast.data.PodParams
 import java.io.IOException
@@ -65,25 +66,26 @@ class AppRfcommController {
         appContext = context.applicationContext
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
+        // 缓存电量只代表“上次已知读数”，不代表当前已连接，故 isConnected 一律 false。
         // 读取左耳电量
         val leftBattery = prefs.getInt(KEY_LEFT_BATTERY, 0)
         val leftCharging = prefs.getBoolean(KEY_LEFT_CHARGING, false)
         if (leftBattery > 0) {
-            cachedLeftBattery = PodParams(leftBattery, leftCharging, true, 0)
+            cachedLeftBattery = PodParams(leftBattery, leftCharging, false, 0)
         }
 
         // 读取右耳电量
         val rightBattery = prefs.getInt(KEY_RIGHT_BATTERY, 0)
         val rightCharging = prefs.getBoolean(KEY_RIGHT_CHARGING, false)
         if (rightBattery > 0) {
-            cachedRightBattery = PodParams(rightBattery, rightCharging, true, 0)
+            cachedRightBattery = PodParams(rightBattery, rightCharging, false, 0)
         }
 
         // 读取耳机盒电量
         val caseBattery = prefs.getInt(KEY_CASE_BATTERY, 0)
         val caseCharging = prefs.getBoolean(KEY_CASE_CHARGING, false)
         if (caseBattery > 0) {
-            cachedCaseBattery = PodParams(caseBattery, caseCharging, true, 0)
+            cachedCaseBattery = PodParams(caseBattery, caseCharging, false, 0)
         }
     }
 
@@ -245,56 +247,29 @@ class AppRfcommController {
 
         val result = BatteryParser.parse(packet)
         if (result != null) {
-            // 更新左耳电量缓存
+            // 以“本次协议帧”为准：本帧上报的部件 -> 已连接；未上报（值为 0）-> 未连接。
             if (result.left != null) {
-                cachedLeftBattery = PodParams(
-                    result.left.level,
-                    result.left.isCharging,
-                    true,
-                    0
-                )
+                cachedLeftBattery = PodParams(result.left.level, result.left.isCharging, true, 0)
                 saveBattery(KEY_LEFT_BATTERY, KEY_LEFT_CHARGING, result.left.level, result.left.isCharging)
+            } else {
+                cachedLeftBattery = cachedLeftBattery?.copy(isConnected = false)
             }
-            // 更新右耳电量缓存
             if (result.right != null) {
-                cachedRightBattery = PodParams(
-                    result.right.level,
-                    result.right.isCharging,
-                    true,
-                    0
-                )
+                cachedRightBattery = PodParams(result.right.level, result.right.isCharging, true, 0)
                 saveBattery(KEY_RIGHT_BATTERY, KEY_RIGHT_CHARGING, result.right.level, result.right.isCharging)
+            } else {
+                cachedRightBattery = cachedRightBattery?.copy(isConnected = false)
             }
-            // 更新耳机盒电量缓存
             if (result.case != null) {
-                cachedCaseBattery = PodParams(
-                    result.case.level,
-                    result.case.isCharging,
-                    true,
-                    0
-                )
+                cachedCaseBattery = PodParams(result.case.level, result.case.isCharging, true, 0)
                 saveBattery(KEY_CASE_BATTERY, KEY_CASE_CHARGING, result.case.level, result.case.isCharging)
+            } else {
+                cachedCaseBattery = cachedCaseBattery?.copy(isConnected = false)
             }
 
-            // 使用缓存的电量（如果有的话）
-            val left = cachedLeftBattery ?: PodParams(
-                result.left?.level ?: 0,
-                result.left?.isCharging == true,
-                result.left != null,
-                0
-            )
-            val right = cachedRightBattery ?: PodParams(
-                result.right?.level ?: 0,
-                result.right?.isCharging == true,
-                result.right != null,
-                0
-            )
-            val case = cachedCaseBattery ?: PodParams(
-                result.case?.level ?: 0,
-                result.case?.isCharging == true,
-                result.case != null,
-                0
-            )
+            val left = cachedLeftBattery ?: PodParams(0, false, false, 0)
+            val right = cachedRightBattery ?: PodParams(0, false, false, 0)
+            val case = cachedCaseBattery ?: PodParams(0, false, false, 0)
             _batteryParams.value = BatteryParams(left, right, case)
             return
         }
@@ -383,6 +358,14 @@ class AppRfcommController {
     }
 
     fun setANCMode(mode: NoiseControlMode) {
+        // 记录用户选择的降噪子模式（普通/深度/实验性），供下次“切到降噪”时恢复
+        val remembered = when (mode) {
+            NoiseControlMode.NORMAL -> 3
+            NoiseControlMode.DEEP -> 4
+            NoiseControlMode.EXPERIMENT -> 5
+            else -> -1
+        }
+        AncModeMemory.write(appContext?.getSharedPreferences(AncModeMemory.PREFS_NAME, Context.MODE_PRIVATE), remembered)
         // 如果用户点击的是当前已处于的降噪模式，忽略操作
         if (mode == _ancMode.value) {
             Log.d(TAG, "Current ANC mode is already $mode, skipping")
@@ -402,6 +385,11 @@ class AppRfcommController {
             _windSuppression.value = true
         } else if (_windSuppression.value) {
             _windSuppression.value = false
+            // 切离抗风噪时同步关闭耳机端开关，避免其持续上报 wind=on
+            scope.launch {
+                delay(80)
+                sendPacket(Enums.WIND_SUPPRESSION_OFF)
+            }
         }
         scope.launch { sendPacket(packet) }
     }

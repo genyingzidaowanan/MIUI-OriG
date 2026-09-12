@@ -6,6 +6,7 @@ import androidx.annotation.RequiresApi
 import io.github.libxposed.api.XposedModule
 import io.github.libxposed.api.XposedModuleInterface.PackageLoadedParam
 import com.redwind.hyperorig.config.ConfigManager
+import com.redwind.hyperorig.utils.RuntimeLog
 
 class HookEntry : XposedModule() {
     private val TAG = "HyperOriG-HookEntry"
@@ -39,6 +40,7 @@ class HookEntry : XposedModule() {
 
     private fun loadHook(hook: HookContext, classLoader: ClassLoader, packageName: String) {
         Log.module = this
+        RuntimeLog.installCrashHandler()
         hook.module = this
         hook.appClassLoader = classLoader
         hook.packageName = packageName

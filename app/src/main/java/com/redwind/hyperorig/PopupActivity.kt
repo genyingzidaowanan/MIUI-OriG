@@ -1,5 +1,7 @@
 package com.redwind.hyperorig
 
+import androidx.core.content.ContextCompat
+
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -31,6 +33,7 @@ import com.redwind.hyperorig.pods.NoiseControlMode
 import com.redwind.hyperorig.ui.AppTheme
 import com.redwind.hyperorig.ui.components.AncSwitch
 import com.redwind.hyperorig.ui.components.PodStatus
+import com.redwind.hyperorig.utils.AncModeMemory
 import com.redwind.hyperorig.utils.miuiStrongToast.data.BatteryParams
 import com.redwind.hyperorig.utils.miuiStrongToast.data.HyperOriGAction
 import top.yukonga.miuix.kmp.basic.Card
@@ -132,8 +135,7 @@ private fun PopupContent(onMore: () -> Unit, onDone: () -> Unit) {
                         }
                     }
                     HyperOriGAction.ACTION_PODS_BATTERY_CHANGED -> {
-                        batteryParams.value =
-                            p1.getParcelableExtra("status", BatteryParams::class.java)!!
+                        p1.getParcelableExtra("status", BatteryParams::class.java)?.let { batteryParams.value = it }
                     }
                     HyperOriGAction.ACTION_PODS_CONNECTED -> {
                         val name = p1.getStringExtra("device_name") ?: ""
@@ -170,7 +172,7 @@ private fun PopupContent(onMore: () -> Unit, onDone: () -> Unit) {
 
     DisposableEffect(Unit) {
         Log.d("HyperOriG-Popup", "注册广播接收器，监听设备状态更新")
-        context.registerReceiver(broadcastReceiver, IntentFilter().apply {
+        ContextCompat.registerReceiver(context, broadcastReceiver, IntentFilter().apply {
             addAction(HyperOriGAction.ACTION_PODS_ANC_CHANGED)
             addAction(HyperOriGAction.ACTION_PODS_BATTERY_CHANGED)
             addAction(HyperOriGAction.ACTION_PODS_CONNECTED)
@@ -178,7 +180,7 @@ private fun PopupContent(onMore: () -> Unit, onDone: () -> Unit) {
             addAction(HyperOriGAction.ACTION_PODS_GAME_MODE_CHANGED)
             addAction(HyperOriGAction.ACTION_PODS_EQ_CHANGED)
             addAction(HyperOriGAction.ACTION_PODS_WIND_SUPPRESSION_CHANGED)
-        }, Context.RECEIVER_EXPORTED)
+        }, ContextCompat.RECEIVER_EXPORTED)
 
         Log.d("HyperOriG-Popup", "发送初始化广播，请求设备名称和状态")
         context.sendBroadcast(Intent(HyperOriGAction.ACTION_PODS_UI_INIT))
@@ -202,6 +204,7 @@ private fun PopupContent(onMore: () -> Unit, onDone: () -> Unit) {
             NoiseControlMode.EXPERIMENT -> 5
             NoiseControlMode.WIND_SUPPRESSION -> 6
         }
+        AncModeMemory.write(context.getSharedPreferences(AncModeMemory.PREFS_NAME, Context.MODE_PRIVATE), status)
         Intent(HyperOriGAction.ACTION_ANC_SELECT).apply {
             putExtra("status", status)
             context.sendBroadcast(this)

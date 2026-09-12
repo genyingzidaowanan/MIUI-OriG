@@ -54,6 +54,7 @@ import androidx.navigation3.ui.NavDisplay
 import com.redwind.hyperorig.MainActivity
 import com.redwind.hyperorig.R
 import com.redwind.hyperorig.pods.AppRfcommController
+import com.redwind.hyperorig.utils.AncModeMemory
 import com.redwind.hyperorig.pods.EqMode
 import com.redwind.hyperorig.pods.NoiseControlMode
 import kotlinx.coroutines.delay
@@ -167,8 +168,7 @@ fun MainUI(
                     }
 
                     HyperOriGAction.ACTION_PODS_BATTERY_CHANGED -> {
-                        batteryParams.value =
-                            p1.getParcelableExtra("status", BatteryParams::class.java)!!
+                        p1.getParcelableExtra("status", BatteryParams::class.java)?.let { batteryParams.value = it }
                     }
 
                     HyperOriGAction.ACTION_PODS_CONNECTED -> {
@@ -231,7 +231,7 @@ fun MainUI(
     }
 
     DisposableEffect(Unit) {
-        context.registerReceiver(broadcastReceiver, IntentFilter().apply {
+        ContextCompat.registerReceiver(context, broadcastReceiver, IntentFilter().apply {
             addAction(HyperOriGAction.ACTION_PODS_ANC_CHANGED)
             addAction(HyperOriGAction.ACTION_PODS_BATTERY_CHANGED)
             addAction(HyperOriGAction.ACTION_PODS_CONNECTED)
@@ -242,7 +242,7 @@ fun MainUI(
             addAction(HyperOriGAction.ACTION_PODS_EQ_CHANGED)
             addAction(HyperOriGAction.ACTION_PODS_WIND_SUPPRESSION_CHANGED)
             addAction(HyperOriGAction.ACTION_PODS_IN_EAR_DETECTION_CHANGED)
-        }, Context.RECEIVER_EXPORTED)
+        }, ContextCompat.RECEIVER_EXPORTED)
 
         context.sendBroadcast(Intent(HyperOriGAction.ACTION_PODS_UI_INIT))
 
@@ -268,6 +268,7 @@ fun MainUI(
             NoiseControlMode.EXPERIMENT -> 5
             NoiseControlMode.WIND_SUPPRESSION -> 6
         }
+        AncModeMemory.write(context.getSharedPreferences(AncModeMemory.PREFS_NAME, Context.MODE_PRIVATE), status)
         Intent(HyperOriGAction.ACTION_ANC_SELECT).apply {
             this.putExtra("status", status)
             context.sendBroadcast(this)
@@ -615,7 +616,7 @@ fun MainUI(
                         title = stringResource(R.string.settings),
                         navigationIcon = {
                             IconButton(
-                                onClick = { backStack.removeLast() },
+                                onClick = { backStack.removeAt(backStack.lastIndex) },
                                 modifier = Modifier.padding(start = 16.dp)
                             ) {
                                 Icon(
@@ -650,7 +651,7 @@ fun MainUI(
         entries = entries,
         onBack = {
             if (backStack.size > 1) {
-                backStack.removeLast()
+                backStack.removeAt(backStack.lastIndex)
             } else {
                 (context as? Activity)?.finish()
             }

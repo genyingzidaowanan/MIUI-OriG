@@ -1,5 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- focus-api 面向 HyperOS 3 / Android 15，但其运行时调用已被 isHyperOS 守卫。
+         此处覆盖其 minSdk 限制，使模块可在 Android 13 (MIUI14) 安装，
+         同时仍将该库打包进 APK 供 HyperOS 使用。 -->
+    <uses-sdk tools:overrideLibrary="com.xzakota.hyper.notification" />
 
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
@@ -53,6 +59,27 @@
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
+
+        <!-- 接收其它进程转发的运行日志 -->
+        <receiver
+            android:name=".LogForwardReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.redwind.hyperorig.action.runtime_log" />
+            </intent-filter>
+        </receiver>
+
+        <!-- 用于把运行日志文件分享/导出 -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
         <!-- Set as Xposed Module -->
         <meta-data
             android:name="xposedmodule"
@@ -61,7 +88,7 @@
         <!-- Set your Xposed Module description -->
         <meta-data
             android:name="xposeddescription"
-            android:value="为 NickHCK YuanDao OriG in 耳机接入 Xiaomi HyperOS。" />
+            android:value="为 NickHCK YuanDao OriG in 耳机接入 Xiaomi HyperOS。MIUI14 Mod 版。" />
 
         <!-- The minimum Xposed version number -->
         <meta-data

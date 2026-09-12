@@ -2,6 +2,7 @@ package com.redwind.hyperorig
 
 import android.app.Application
 import android.util.Log
+import com.redwind.hyperorig.utils.RuntimeLog
 import io.github.libxposed.service.XposedService
 import io.github.libxposed.service.XposedServiceHelper
 import java.util.concurrent.CopyOnWriteArraySet
@@ -9,11 +10,15 @@ import java.util.concurrent.CopyOnWriteArraySet
 class HyperOriGApp : Application(), XposedServiceHelper.OnServiceListener {
     override fun onCreate() {
         super.onCreate()
+        RuntimeLog.init(this)
+        RuntimeLog.installCrashHandler(this)
+        RuntimeLog.i(TAG, "app process started")
         XposedServiceHelper.registerListener(this)
     }
 
     override fun onServiceBind(service: XposedService) {
         Log.d(TAG, "LSPosed service bound api=${service.apiVersion} framework=${service.frameworkName}/${service.frameworkVersionCode}")
+        RuntimeLog.i(TAG, "LSPosed service bound framework=${service.frameworkName}/${service.frameworkVersionCode}")
         xposedService = service
         notifyListeners(service)
     }
@@ -21,6 +26,7 @@ class HyperOriGApp : Application(), XposedServiceHelper.OnServiceListener {
     override fun onServiceDied(service: XposedService) {
         if (xposedService == service) {
             Log.d(TAG, "LSPosed service died")
+            RuntimeLog.w(TAG, "LSPosed service died")
             xposedService = null
             notifyListeners(null)
         }

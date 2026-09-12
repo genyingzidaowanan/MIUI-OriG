@@ -17,7 +17,17 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.sp
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.core.content.FileProvider
 import com.redwind.hyperorig.R
+import com.redwind.hyperorig.utils.RuntimeLog
 import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
@@ -38,6 +48,8 @@ fun SettingsPage(
 ) {
     val context = LocalContext.current
     val showorigWarning = remember { mutableStateOf(false) }
+    val showLog = remember { mutableStateOf(false) }
+    val logText = remember { mutableStateOf("") }
     val themeOptions = listOf(
         stringResource(R.string.theme_follow_system),
         stringResource(R.string.theme_light),
@@ -71,6 +83,19 @@ fun SettingsPage(
                         } else {
                             onOpenorigChange(false)
                         }
+                    }
+                )
+            }
+        }
+
+        item {
+            Card(modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp)) {
+                BasicComponent(
+                    title = "运行日志",
+                    summary = "查看并导出模块运行日志（反馈问题时使用）",
+                    onClick = {
+                        logText.value = RuntimeLog.snapshot().joinToString("\n").ifEmpty { "(暂无日志)" }
+                        showLog.value = true
                     }
                 )
             }
@@ -236,4 +261,52 @@ fun SettingsPage(
             colors = ButtonDefaults.textButtonColorsPrimary()
         )
     }
+
+    SuperDialog(
+        title = "运行日志",
+        show = showLog,
+        onDismissRequest = { showLog.value = false }
+    ) {
+        Text(
+            text = logText.value,
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 380.dp)
+                .verticalScroll(rememberScrollState()),
+            fontSize = 11.sp
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly
+        ) {
+            TextButton(text = "刷新", onClick = {
+                logText.value = RuntimeLog.snapshot().joinToString("\n").ifEmpty { "(暂无日志)" }
+            })
+            TextButton(text = "复制", onClick = {
+                val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                cm.setPrimaryClip(ClipData.newPlainText("HyperOriG-Log", logText.value))
+            })
+            TextButton(text = "分享", onClick = { shareLog(context) })
+            TextButton(text = "清空", onClick = {
+                RuntimeLog.clear()
+                logText.value = "(暂无日志)"
+            })
+        }
+    }
+}
+
+private fun shareLog(context: Context) {
+    val file = RuntimeLog.exportToFile(context) ?: return
+    val uri = runCatching {
+        FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+    }.getOrNull() ?: return
+    val send = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_STREAM, uri)
+        putExtra(Intent.EXTRA_SUBJECT, "HyperOriG 运行日志")
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    context.startActivity(Intent.createChooser(send, "导出运行日志").apply {
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    })
 }

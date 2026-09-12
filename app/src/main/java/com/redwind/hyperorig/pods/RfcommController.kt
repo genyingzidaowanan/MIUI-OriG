@@ -1,5 +1,9 @@
 package com.redwind.hyperorig.pods
 
+import androidx.core.content.ContextCompat
+import androidx.annotation.RequiresApi
+import android.os.Build
+
 import android.annotation.SuppressLint
 import android.app.StatusBarManager
 import android.bluetooth.BluetoothAdapter
@@ -24,7 +28,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.redwind.hyperorig.BuildConfig
+import com.redwind.hyperorig.utils.AncModeMemory
 import com.redwind.hyperorig.utils.MediaControl
+import com.redwind.hyperorig.utils.RuntimeLog
 import com.redwind.hyperorig.utils.SystemApisUtils
 import com.redwind.hyperorig.utils.SystemApisUtils.setIconVisibility
 import com.redwind.hyperorig.utils.miuiStrongToast.MiuiStrongToastUtil
@@ -61,7 +67,8 @@ object RfcommController {
     }
     private lateinit var mPrefs: SharedPreferences
 
-    private var scanToken: MediaRouter2.ScanToken? = null
+    // 用 Any? 保存，避免在 API<34 上加载 MediaRouter2$ScanToken 导致 NoClassDefFoundError
+    private var scanToken: Any? = null
     var routes: List<MediaRoute2Info> = listOf()
     private lateinit var mediaRouter: MediaRouter2
 
@@ -78,6 +85,8 @@ object RfcommController {
     private var lastTempBatt = 0
     lateinit var currentBatteryParams: BatteryParams
     private var currentAnc: Int = 1
+    // 上次使用的降噪子模式（3=普通 / 4=深度 / 5=实验性）
+    private var lastNcMode: Int = AncModeMemory.DEFAULT_NC_MODE
     private var currentGameMode: Boolean = false
     private var currentLowLatency: Boolean = false
     private var currentDualConn: Boolean = false
@@ -109,6 +118,7 @@ object RfcommController {
     }
 
     private fun changeUIAncStatus(status: Int) {
+        RuntimeLog.i(TAG, "changeUIAncStatus -> $status")
         if (status < 1 || status > 6) return
         Intent(HyperOriGAction.ACTION_PODS_ANC_CHANGED).apply {
             if (::mDevice.isInitialized) this.putExtra("address", mDevice.address)
@@ -123,6 +133,12 @@ object RfcommController {
     }
 
     private fun changeUIBatteryStatus(status: BatteryParams) {
+        RuntimeLog.i(
+            TAG,
+            "battery parsed L=${status.left?.battery}/${status.left?.isConnected} " +
+                "R=${status.right?.battery}/${status.right?.isConnected} " +
+                "C=${status.case?.battery}/${status.case?.isConnected}"
+        )
         Intent(HyperOriGAction.ACTION_PODS_BATTERY_CHANGED).apply {
             if (::mDevice.isInitialized) this.putExtra("address", mDevice.address)
             this.putExtra("status", status)
@@ -139,7 +155,7 @@ object RfcommController {
 
     private fun sendExternalPodsStatusBroadcast(action: String, fill: Intent.() -> Unit = {}) {
         val ctx = mContext ?: return
-        listOf("com.milink.service", "com.xiaomi.bluetooth", "com.android.settings").forEach { targetPackage ->
+        listOf("com.milink.service", "com.xiaomi.bluetooth", "com.android.settings", "com.android.bluetooth").forEach { targetPackage ->
             Intent(action).apply {
                 if (::mDevice.isInitialized) {
                     putExtra("address", mDevice.address)
@@ -319,56 +335,32 @@ object RfcommController {
 
     @OptIn(ExperimentalStdlibApi::class)
     fun handleBatteryChanged(result: BatteryParser.BatteryResult) {
-        // 更新左耳电量缓存
+        // 记录解析器实际命中的部件（null 表示协议未上报该部件），用于定位“只连一只却显示全部”
+        RuntimeLog.i(TAG, "battery packet L=${result.left?.level} R=${result.right?.level} C=${result.case?.level}")
+        // 以“本次协议帧”为准：本帧上报的部件 -> 已连接；未上报（值为 0）-> 未连接。
+        // 未连接的部件通知里不会显示；电量值只保留上次读数备用。
         if (result.left != null) {
-            cachedLeftBattery = PodParams(
-                result.left.level,
-                result.left.isCharging,
-                true,
-                0
-            )
+            cachedLeftBattery = PodParams(result.left.level, result.left.isCharging, true, 0)
             saveBattery(KEY_LEFT_BATTERY, KEY_LEFT_CHARGING, result.left.level, result.left.isCharging)
+        } else {
+            cachedLeftBattery = cachedLeftBattery?.copy(isConnected = false)
         }
-        // 更新右耳电量缓存
         if (result.right != null) {
-            cachedRightBattery = PodParams(
-                result.right.level,
-                result.right.isCharging,
-                true,
-                0
-            )
+            cachedRightBattery = PodParams(result.right.level, result.right.isCharging, true, 0)
             saveBattery(KEY_RIGHT_BATTERY, KEY_RIGHT_CHARGING, result.right.level, result.right.isCharging)
+        } else {
+            cachedRightBattery = cachedRightBattery?.copy(isConnected = false)
         }
-        // 更新耳机盒电量缓存
         if (result.case != null) {
-            cachedCaseBattery = PodParams(
-                result.case.level,
-                result.case.isCharging,
-                true,
-                0
-            )
+            cachedCaseBattery = PodParams(result.case.level, result.case.isCharging, true, 0)
             saveBattery(KEY_CASE_BATTERY, KEY_CASE_CHARGING, result.case.level, result.case.isCharging)
+        } else {
+            cachedCaseBattery = cachedCaseBattery?.copy(isConnected = false)
         }
 
-        // 使用缓存的电量（如果有的话）
-        val left = cachedLeftBattery ?: PodParams(
-            result.left?.level ?: 0,
-            result.left?.isCharging == true,
-            result.left != null,
-            0
-        )
-        val right = cachedRightBattery ?: PodParams(
-            result.right?.level ?: 0,
-            result.right?.isCharging == true,
-            result.right != null,
-            0
-        )
-        val case = cachedCaseBattery ?: PodParams(
-            result.case?.level ?: 0,
-            result.case?.isCharging == true,
-            result.case != null,
-            0
-        )
+        val left = cachedLeftBattery ?: PodParams(0, false, false, 0)
+        val right = cachedRightBattery ?: PodParams(0, false, false, 0)
+        val case = cachedCaseBattery ?: PodParams(0, false, false, 0)
 
         if (BuildConfig.DEBUG) {
             Log.v(TAG, "batt left ${left.battery} right ${right.battery} case ${case.battery}")
@@ -415,37 +407,57 @@ object RfcommController {
         }
         val preferredFeature = listOf(MediaRoute2Info.FEATURE_LIVE_AUDIO, MediaRoute2Info.FEATURE_LIVE_VIDEO)
         mediaRouter.registerRouteCallback(executor, routeCallback, RouteDiscoveryPreference.Builder(preferredFeature, true).build())
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            startRoutesScanApi34()
+        } else {
+            // ScanRequest / ScanToken 是 API 34+；Android 13 只能用无参的旧接口（已从编译 stub 移除，走反射）
+            runCatching { MediaRouter2::class.java.getMethod("requestScan").invoke(mediaRouter) }
+                .onFailure { Log.d(TAG, "MediaRouter2.requestScan() unsupported", it) }
+        }
+    }
+
+    @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+    private fun startRoutesScanApi34() {
         scanToken = mediaRouter.requestScan(MediaRouter2.ScanRequest.Builder().build())
     }
 
     private fun stopRoutesScan() {
-        scanToken?.let { mediaRouter.cancelScanRequest(it) }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            stopRoutesScanApi34()
+        }
         mediaRouter.unregisterRouteCallback(routeCallback)
+    }
+
+    @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+    private fun stopRoutesScanApi34() {
+        (scanToken as? MediaRouter2.ScanToken)?.let { mediaRouter.cancelScanRequest(it) }
     }
 
     // 初始化时从 SharedPreferences 读取缓存的电量
     fun initBatteryCache(context: Context) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
+        // 注意：这里读到的只是“上次已知电量”，并不代表当前已连接，
+        // 因此 isConnected 一律为 false，要等协议帧真正上报后才置为 true。
         // 读取左耳电量
         val leftBattery = prefs.getInt(KEY_LEFT_BATTERY, 0)
         val leftCharging = prefs.getBoolean(KEY_LEFT_CHARGING, false)
         if (leftBattery > 0) {
-            cachedLeftBattery = PodParams(leftBattery, leftCharging, true, 0)
+            cachedLeftBattery = PodParams(leftBattery, leftCharging, false, 0)
         }
 
         // 读取右耳电量
         val rightBattery = prefs.getInt(KEY_RIGHT_BATTERY, 0)
         val rightCharging = prefs.getBoolean(KEY_RIGHT_CHARGING, false)
         if (rightBattery > 0) {
-            cachedRightBattery = PodParams(rightBattery, rightCharging, true, 0)
+            cachedRightBattery = PodParams(rightBattery, rightCharging, false, 0)
         }
 
         // 读取耳机盒电量
         val caseBattery = prefs.getInt(KEY_CASE_BATTERY, 0)
         val caseCharging = prefs.getBoolean(KEY_CASE_CHARGING, false)
         if (caseBattery > 0) {
-            cachedCaseBattery = PodParams(caseBattery, caseCharging, true, 0)
+            cachedCaseBattery = PodParams(caseBattery, caseCharging, false, 0)
         }
     }
 
@@ -465,11 +477,12 @@ object RfcommController {
         mContext = context
         mDevice = device
         mPrefs = prefs
+        lastNcMode = AncModeMemory.read(mPrefs)
 
         // 初始化电池缓存
         initBatteryCache(context)
 
-        context.registerReceiver(broadcastReceiver, IntentFilter().apply {
+        ContextCompat.registerReceiver(context, broadcastReceiver, IntentFilter().apply {
             this.addAction(HyperOriGAction.ACTION_ANC_SELECT)
             this.addAction(HyperOriGAction.ACTION_PODS_UI_INIT)
             this.addAction(HyperOriGAction.ACTION_GET_PODS_MAC)
@@ -480,7 +493,7 @@ object RfcommController {
             this.addAction(HyperOriGAction.ACTION_EQ_SET)
             this.addAction(HyperOriGAction.ACTION_WIND_SUPPRESSION_SET)
             this.addAction(HyperOriGAction.ACTION_IN_EAR_DETECTION_SET)
-        }, Context.RECEIVER_EXPORTED)
+        }, ContextCompat.RECEIVER_EXPORTED)
 
         val deviceName = device.alias ?: device.name ?: device.address
         Intent(HyperOriGAction.ACTION_PODS_CONNECTED).apply {
@@ -500,7 +513,8 @@ object RfcommController {
 
         MediaControl.mContext = mContext
         mediaRouter = MediaRouter2.getInstance(mContext!!)
-        startRoutesScan()
+        // 媒体路由扫描在蓝牙进程内可能因权限失败，不能让它中断 SPP 连接
+        runCatching { startRoutesScan() }.onFailure { Log.w(TAG, "media route scan skipped", it) }
 
         isConnected = true
 
@@ -624,10 +638,12 @@ object RfcommController {
         val ancResult = AncModeParser.parse(packet)
         if (ancResult != null) {
             Log.d(TAG, "ANC mode received: $ancResult")
-            // 只有当抗风噪开启时才忽略 ANC 响应
-            // 这样可以避免抗风噪开启时 ANC 查询返回 OFF 导致的闪烁
-            // 同时确保抗风噪关闭时能正确同步 ANC 状态
-            if (!currentWindSuppression) {
+            // 抗风噪开启时，耳机可能把 ANC 查询回成 OFF（会导致显示闪烁），此时忽略；
+            // 但若回的是明确模式（通透/降噪等），说明用户确实切换了，应当采信，
+            // 否则会出现“切到通透但一直显示抗风噪”的状态不同步。
+            val meaningful = ancResult != NoiseControlMode.OFF
+            RuntimeLog.i(TAG, "ANC response=$ancResult wind=$currentWindSuppression apply=${!currentWindSuppression || meaningful}")
+            if (!currentWindSuppression || meaningful) {
                 currentAnc = when (ancResult) {
                     NoiseControlMode.OFF -> 1
                     NoiseControlMode.TRANSPARENT -> 2
@@ -676,6 +692,7 @@ object RfcommController {
         val windSuppressionResult = WindSuppressionParser.parse(packet)
         if (windSuppressionResult != null) {
             Log.d(TAG, "Wind suppression received: $windSuppressionResult")
+            RuntimeLog.i(TAG, "wind response=$windSuppressionResult old=$currentWindSuppression currentAnc=$currentAnc")
             val oldWindSuppression = currentWindSuppression
             currentWindSuppression = windSuppressionResult
             // 抗风噪也是ANC模式的一种，需要同步更新ANC状态
@@ -705,6 +722,7 @@ object RfcommController {
     }
 
     fun disconnectedPod(context: Context, device: BluetoothDevice) {
+        RuntimeLog.i(TAG, "disconnectedPod device=${device.address}")
         isConnected = false
         batteryPollJob?.cancel()
 
@@ -714,19 +732,26 @@ object RfcommController {
         socket = null
 
         mContext?.let {
-            stopRoutesScan()
-            cancelPodsNotificationByMiuiBt(context, device)
-            Intent(HyperOriGAction.ACTION_PODS_DISCONNECTED).apply {
-                if (::mDevice.isInitialized) this.putExtra("address", mDevice.address)
-                context.sendBroadcast(this)
-            }
-            sendExternalPodsStatusBroadcast(HyperOriGAction.ACTION_PODS_DISCONNECTED)
-            it.unregisterReceiver(broadcastReceiver)
+            runCatching { stopRoutesScan() }
+                .onFailure { e -> RuntimeLog.e(TAG, "stopRoutesScan failed: ${e.message}") }
+            runCatching { cancelPodsNotificationByMiuiBt(context, device) }
+                .onFailure { e -> RuntimeLog.e(TAG, "cancel pods notification failed: ${e.message}") }
+            runCatching {
+                Intent(HyperOriGAction.ACTION_PODS_DISCONNECTED).apply {
+                    if (::mDevice.isInitialized) this.putExtra("address", mDevice.address)
+                    context.sendBroadcast(this)
+                }
+            }.onFailure { e -> RuntimeLog.e(TAG, "broadcast disconnect failed: ${e.message}") }
+            runCatching { sendExternalPodsStatusBroadcast(HyperOriGAction.ACTION_PODS_DISCONNECTED) }
+                .onFailure { e -> RuntimeLog.e(TAG, "external disconnect broadcast failed: ${e.message}") }
+            runCatching { it.unregisterReceiver(broadcastReceiver) }
+                .onFailure { e -> RuntimeLog.e(TAG, "unregisterReceiver failed: ${e.message}") }
         }
 
         mShowedConnectedToast = false
         mContext = null
         MediaControl.mContext = null
+        RuntimeLog.i(TAG, "disconnectedPod done")
     }
 
     private fun sendPacketSafe(packet: ByteArray) {
@@ -752,6 +777,12 @@ object RfcommController {
 
     fun setANCMode(mode: Int) {
         Log.d(TAG, "setANCMode: $mode")
+        RuntimeLog.i(TAG, "setANCMode($mode) currentAnc=$currentAnc wind=$currentWindSuppression")
+        // 记住用户选择的降噪子模式（普通/深度/实验性），供下次“切到降噪”时恢复
+        if (AncModeMemory.isValid(mode)) {
+            lastNcMode = mode
+            if (::mPrefs.isInitialized) AncModeMemory.write(mPrefs, mode)
+        }
         if (mode == currentAnc) {
             Log.d(TAG, "Current ANC mode is already $mode, skipping")
             return
@@ -765,20 +796,31 @@ object RfcommController {
             6 -> Enums.ANC_WIND_SUPPRESSION
             else -> return
         }
+        val wasWindSuppression = currentWindSuppression
         currentAnc = mode
         // 抗风噪模式需要同步更新windSuppression状态
         if (mode == 6) {
             currentWindSuppression = true
             changeUIWindSuppressionStatus(true)
-        } else if (currentWindSuppression) {
+        } else if (wasWindSuppression) {
             currentWindSuppression = false
             changeUIWindSuppressionStatus(false)
         }
         CoroutineScope(Dispatchers.IO).launch {
             sendPacketSafe(packet)
+            // 切到非抗风噪模式时，必须同时关闭耳机端的抗风噪开关，
+            // 否则耳机会持续上报 wind=on，轮询时又把显示拉回“抗风噪”。
+            if (mode != 6 && wasWindSuppression) {
+                delay(80)
+                sendPacketSafe(Enums.WIND_SUPPRESSION_OFF)
+            }
         }
         changeUIAncStatus(currentAnc)
     }
+
+    /** 上次使用的降噪子模式（3/4/5），用于“切到降噪”时恢复档位。 */
+    fun preferredNoiseControlMode(): Int =
+        if (AncModeMemory.isValid(lastNcMode)) lastNcMode else AncModeMemory.DEFAULT_NC_MODE
 
     fun setLowLatency(enabled: Boolean) {
         Log.d(TAG, "setLowLatency: $enabled")
@@ -816,6 +858,7 @@ object RfcommController {
 
     fun setWindSuppression(enabled: Boolean) {
         Log.d(TAG, "setWindSuppression: $enabled")
+        RuntimeLog.i(TAG, "setWindSuppression($enabled) old=$currentWindSuppression currentAnc=$currentAnc")
         val oldEnabled = currentWindSuppression
         currentWindSuppression = enabled
         val packet = if (enabled) Enums.WIND_SUPPRESSION_ON else Enums.WIND_SUPPRESSION_OFF
@@ -935,11 +978,13 @@ object RfcommController {
     }
 
     fun setRegularBatteryLevel(level: Int) {
-        try {
-            val service = getObjectField(mContext, "mAdapterService")
-            callMethod(service, "setBatteryLevel", mDevice, level, false)
-        } catch (e: Exception) {
-            Log.e(TAG, "setRegularBatteryLevel failed", e)
+        val service = runCatching { getObjectField(mContext, "mAdapterService") }.getOrNull()
+        if (service != null) {
+            // 不同 Android 版本 AdapterService.setBatteryLevel 签名不同；MIUI14 上可能不存在。
+            if (runCatching { callMethod(service, "setBatteryLevel", mDevice, level, false) }.isSuccess) return
+            if (runCatching { callMethod(service, "setBatteryLevel", mDevice, level) }.isSuccess) return
         }
+        // 平台不支持时静默跳过（不影响通知与电量显示）
+        Log.d(TAG, "setBatteryLevel not available on this platform, skip level=$level")
     }
 }
