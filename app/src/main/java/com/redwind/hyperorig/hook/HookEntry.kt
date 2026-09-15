@@ -6,6 +6,8 @@ import androidx.annotation.RequiresApi
 import io.github.libxposed.api.XposedModule
 import io.github.libxposed.api.XposedModuleInterface.PackageLoadedParam
 import com.redwind.hyperorig.config.ConfigManager
+import com.redwind.hyperorig.utils.LogLevels
+import com.redwind.hyperorig.utils.PollSettings
 import com.redwind.hyperorig.utils.RuntimeLog
 
 class HookEntry : XposedModule() {
@@ -47,9 +49,17 @@ class HookEntry : XposedModule() {
         hook.prefs = getRemotePreferences("hyperorig_settings")
         Log.d(TAG, "loadHook package=$packageName hook=${hook.javaClass.simpleName}")
         ConfigManager.init(hook.prefs)
+        LogLevels.refresh(hook.prefs)
+        PollSettings.refresh(hook.prefs)
         val configListener = SharedPreferences.OnSharedPreferenceChangeListener { sharedPreferences, key ->
             if (key == ConfigManager.PREF_KEY_CONFIG_JSON) {
                 ConfigManager.refreshFromPrefs(sharedPreferences)
+            }
+            if (key == null || key == LogLevels.KEY) {
+                LogLevels.refresh(sharedPreferences)
+            }
+            if (key == null || key == PollSettings.KEY) {
+                PollSettings.refresh(sharedPreferences)
             }
         }
         configListeners.add(configListener)

@@ -30,6 +30,7 @@ import kotlinx.coroutines.launch
 import com.redwind.hyperorig.BuildConfig
 import com.redwind.hyperorig.utils.AncModeMemory
 import com.redwind.hyperorig.utils.MediaControl
+import com.redwind.hyperorig.utils.PollSettings
 import com.redwind.hyperorig.utils.RuntimeLog
 import com.redwind.hyperorig.utils.SystemApisUtils
 import com.redwind.hyperorig.utils.SystemApisUtils.setIconVisibility
@@ -55,7 +56,8 @@ private const val KEY_CASE_CHARGING = "case_charging"
 @SuppressLint("MissingPermission", "StaticFieldLeak")
 object RfcommController {
     private const val TAG = "HyperOriG-RfcommController"
-    private const val BATTERY_POLL_INTERVAL_MS = 30_000L
+    /** 轮询计时心跳（1 秒）；真正的间隔由 [PollSettings] 决定，便于运行时修改 */
+    private const val POLL_TICK_MS = 1000L
 
     private val SPP_UUID: UUID = UUID.fromString("0000a100-1000-8000-4e48-434b4354524c")
 
@@ -557,12 +559,24 @@ object RfcommController {
             }
         }
 
+        // 连接时同步一次轮询间隔设置
+        PollSettings.refresh(mPrefs)
         batteryPollJob = CoroutineScope(Dispatchers.IO).launch {
             delay(2000)
+            var elapsed = 0L
             while (isConnected) {
-                delay(BATTERY_POLL_INTERVAL_MS)
-                if (isConnected) {
-                    queryStatus()
+                // 1 秒一跳：用户切换间隔或关闭定时轮询后最长 1 秒内即可生效
+                delay(POLL_TICK_MS)
+                val interval = PollSettings.current()
+                if (interval <= 0) {
+                    // 已关闭定时轮询：只依赖耳机异步上报
+                    elapsed = 0L
+                    continue
+                }
+                elapsed += POLL_TICK_MS
+                if (elapsed >= interval) {
+                    elapsed = 0L
+                    if (isConnected) queryStatus()
                 }
             }
         }

@@ -160,14 +160,26 @@ object PodsUiBridge {
                     val batteryParams = p1.getParcelableExtra("status", BatteryParams::class.java)
                         ?: parseBatteryExtras(p1)
                         ?: return
+                    // 已断开则忽略迟到的电量广播，避免把通知又“复活”
+                    if (lastConnectedDevice == null) {
+                        RuntimeLog.i(TAG, "battery ignored: no active device")
+                        return
+                    }
                     lastBatteryParams = batteryParams
-                    resolveDevice(p1.getStringExtra("address"))?.let { lastConnectedDevice = it }
+                    val address = p1.getStringExtra("address")
+                    if (address != null && !address.equals(lastConnectedDevice?.address, ignoreCase = true)) {
+                        resolveDevice(address)?.let { lastConnectedDevice = it }
+                    }
                     if (!isHyperOS) {
                         lastConnectedDevice?.let { showPodsNotification(context, it, batteryParams, localAncMode) }
                     }
                 }
                 HyperOriGAction.ACTION_PODS_DISCONNECTED -> {
-                    lastConnectedDevice?.let { cancelNotification(context, it) }
+                    // 注意：不能依赖 lastConnectedDevice（可能已被提前清空），
+                    // 优先用广播里携带的 address 来取消通知。
+                    val address = p1.getStringExtra("address") ?: lastConnectedDevice?.address
+                    RuntimeLog.i(TAG, "disconnect broadcast, cancel notification address=$address")
+                    address?.let { cancelNotificationByAddress(context, it) }
                     lastConnectedDevice = null
                     lastBatteryParams = null
                     lastSignature = null
@@ -355,9 +367,19 @@ object PodsUiBridge {
         )
     }
 
+    /** 供 [HeadsetStateDispatcher] 在断开时直接调用，立即取消残留通知。 */
+    fun cancelPodsNotification(context: Context, device: BluetoothDevice) {
+        cancelNotificationByAddress(context, device.address)
+    }
+
     private fun cancelNotification(context: Context, device: BluetoothDevice) {
-        val channelId = "$CHANNEL_PREFIX${device.address}"
+        cancelNotificationByAddress(context, device.address)
+    }
+
+    private fun cancelNotificationByAddress(context: Context, address: String) {
+        val channelId = "$CHANNEL_PREFIX$address"
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        RuntimeLog.i(TAG, "cancel notification tag=$channelId id=$NOTIFICATION_ID")
         try {
             nm.cancelAsUser(channelId, NOTIFICATION_ID, SystemApisUtils.getUserAllUserHandle())
         } catch (_: Throwable) {

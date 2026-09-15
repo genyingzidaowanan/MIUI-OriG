@@ -56,16 +56,22 @@ object HeadsetStateDispatcher : HookContext() {
         }
     }
 
+    /** 记住当前已连接的耳机地址：断开时 device.name 可能取不到，用它兜底判断 */
+    private var activePodAddress: String? = null
+
     @SuppressLint("MissingPermission")
     private fun handleStateChange(service: Any?, device: BluetoothDevice, currState: Int) {
         runCatching {
             val context = (service as? Context)
                 ?: runCatching { getObjectField(service, "mContext") as? Context }.getOrNull()
                 ?: return
-            if (!isOriGPod(device)) return
+            val address = runCatching { device.address }.getOrNull()
+            val isPod = isOriGPod(device) || (address != null && address.equals(activePodAddress, ignoreCase = true))
+            if (!isPod) return
             val statusBarManager = context.getSystemService("statusbar") as? StatusBarManager
             when (currState) {
                 BluetoothHeadset.STATE_CONNECTED -> {
+                    activePodAddress = address
                     // MIUI14 的 com.android.bluetooth 没有 STATUS_BAR 权限，setIconVisibility 会抛
                     // SecurityException。必须单独吞掉，否则会中断后面的注册与 SPP 连接。
                     runCatching { statusBarManager?.setIconVisibility("wireless_headset", true) }
@@ -77,10 +83,14 @@ object HeadsetStateDispatcher : HookContext() {
                 }
                 BluetoothHeadset.STATE_DISCONNECTING, BluetoothHeadset.STATE_DISCONNECTED -> {
                     runCatching { statusBarManager?.setIconVisibility("wireless_headset", false) }
+                    // 关键：先取消通知、再清空状态。顺序反了会导致没有可取消的目标 → 通知残留。
                     if (!SystemApisUtils.isHyperOS) {
+                        runCatching { PodsUiBridge.cancelPodsNotification(context, device) }
                         runCatching { PodsUiBridge.onPodDisconnected(device) }
                     }
                     RfcommController.disconnectedPod(context, device)
+                    activePodAddress = null
+                    Log.i(TAG, "disconnect cleanup done address=$address")
                 }
             }
         }.onFailure { Log.w(TAG, "handleStateChange failed state=$currState", it) }

@@ -10,6 +10,9 @@ import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.core.view.WindowCompat
+import android.content.res.Configuration
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -45,7 +48,18 @@ import top.yukonga.miuix.kmp.theme.ColorSchemeMode
 
 class PopupActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+
+        // 状态栏/导航栏图标明暗跟随主题，避免深色背景下看不清
+        val themeModeValue = getSharedPreferences("hyperorig_settings", Context.MODE_PRIVATE)
+            .getInt("theme_mode", 0)
+        val isDark = when (themeModeValue) {
+            1 -> false
+            2 -> true
+            else -> resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
+        }
+        applyEdgeToEdgeBars(isDark)
 
         setContent {
             val prefs = getSharedPreferences("hyperorig_settings", Context.MODE_PRIVATE)
@@ -86,6 +100,17 @@ class PopupActivity : ComponentActivity() {
         super.onPause()
         // 当活动失去焦点时（如用户返回桌面），自动结束弹窗
         finish()
+    }
+
+    @Suppress("DEPRECATION")
+    private fun applyEdgeToEdgeBars(dark: Boolean) {
+        window.navigationBarColor = android.graphics.Color.TRANSPARENT
+        window.statusBarColor = android.graphics.Color.TRANSPARENT
+        window.isNavigationBarContrastEnforced = false
+        window.isStatusBarContrastEnforced = false
+        val controller = WindowCompat.getInsetsController(window, window.decorView)
+        controller.isAppearanceLightStatusBars = !dark
+        controller.isAppearanceLightNavigationBars = !dark
     }
 }
 

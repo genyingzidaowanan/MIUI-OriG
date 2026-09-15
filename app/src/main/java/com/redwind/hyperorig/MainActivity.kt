@@ -10,6 +10,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.core.view.WindowCompat
 import com.redwind.hyperorig.ui.App
 
 class MainActivity : ComponentActivity() {
@@ -44,6 +45,11 @@ class MainActivity : ComponentActivity() {
                 window.navigationBarColor = Color.TRANSPARENT
                 window.statusBarColor = Color.TRANSPARENT
                 window.isNavigationBarContrastEnforced = false
+                window.isStatusBarContrastEnforced = false
+                // 状态栏/导航栏图标跟随主题明暗，避免深色背景下图标看不清
+                val controller = WindowCompat.getInsetsController(window, window.decorView)
+                controller.isAppearanceLightStatusBars = !darkMode
+                controller.isAppearanceLightNavigationBars = !darkMode
                 onDispose {}
             }
 

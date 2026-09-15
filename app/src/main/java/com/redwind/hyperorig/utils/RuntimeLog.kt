@@ -49,6 +49,9 @@ object RuntimeLog {
         isAppProcess = context.packageName == APP_PACKAGE
         if (isAppProcess) {
             runCatching {
+                LogLevels.refresh(context.getSharedPreferences(LogLevels.PREFS_NAME, Context.MODE_PRIVATE))
+            }
+            runCatching {
                 val f = logFile(context)
                 if (f.exists()) {
                     val existing = f.readLines()
@@ -67,6 +70,8 @@ object RuntimeLog {
     fun e(tag: String, message: String) = record('E', tag, message)
 
     fun record(level: Char, tag: String, message: String) {
+        // 先按用户选择的等级过滤：不匹配就直接返回，避免字符串拼接与跨进程广播的开销
+        if (!LogLevels.isEnabled(LogLevels.levelOf(level))) return
         val line = "${fmt.format(Date())} $level/$tag: $message"
         appendLocal(line)
         if (isAppProcess) persist(line) else forward(line)
